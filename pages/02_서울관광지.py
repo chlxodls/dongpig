@@ -4,13 +4,20 @@ import folium
 from streamlit_folium import st_folium
 from folium.plugins import MarkerCluster
 
+# ----------------------------------
+# 1. 페이지 설정
+# ----------------------------------
+
 st.set_page_config(
     page_title="서울 외국인 인기 관광지 TOP 10",
     page_icon="🗺️",
     layout="wide"
 )
 
-# 서울 주요 관광지 데이터
+# ----------------------------------
+# 2. 관광지 데이터
+# ----------------------------------
+
 PLACES = [
     {
         "rank": 1,
@@ -114,79 +121,115 @@ PLACES = [
     }
 ]
 
-# 제목
+# ----------------------------------
+# 3. 웹사이트 제목
+# ----------------------------------
+
 st.title("🗺️ 외국인이 좋아하는 서울 관광지 TOP 10")
-st.write(
-    "서울을 방문하는 외국인 관광객들이 즐겨 찾는 "
-    "대표 관광지를 지도에서 확인해 보세요."
-)
+
+st.markdown("""
+서울을 방문하는 외국인 관광객들이 즐겨 찾는
+대표 관광지를 지도에서 확인해 보세요.
+
+지도에서 숫자 마커를 클릭하면 관광지 정보를 확인할 수 있습니다.
+""")
 
 st.info(
-    "서울의 대표 관광지를 소개하기 위한 안내용 목록입니다. "
-    "공식 통합 관광지 순위와는 다릅니다."
+    "※ 관광지 10곳은 서울의 대표 관광지를 바탕으로 선정한 안내용 목록이며, "
+    "공식 통합 순위는 아닙니다."
 )
 
-# 서울 지도 생성
+# ----------------------------------
+# 4. 지도 생성
+# ----------------------------------
+
 m = folium.Map(
     location=[37.555, 126.990],
     zoom_start=12,
-    tiles="CartoDB positron"
+    tiles="OpenStreetMap",
+    control_scale=True
 )
 
-# 관광지 마커 표시
-cluster = MarkerCluster().add_to(m)
+# 관광지 마커 그룹
+marker_cluster = MarkerCluster().add_to(m)
+
+# ----------------------------------
+# 5. 관광지 마커 표시
+# ----------------------------------
 
 for place in PLACES:
 
     popup_html = f"""
-    <div style="width:220px">
-        <h4>{place['rank']}. {place['name']}</h4>
+    <div style="width:230px; font-family:sans-serif;">
+        <h3>{place['rank']}. {place['name']}</h3>
         <b>{place['english']}</b>
         <p>{place['description']}</p>
+        <hr>
+        <b>관광 유형:</b> {place['category']}
     </div>
     """
 
     folium.Marker(
-        location=[place["lat"], place["lon"]],
+        location=[
+            place["lat"],
+            place["lon"]
+        ],
+
         tooltip=f"{place['rank']}. {place['name']}",
+
         popup=folium.Popup(
             popup_html,
             max_width=280
         ),
+
         icon=folium.DivIcon(
             html=f"""
             <div style="
-                background:#1769aa;
+                background-color:#1769aa;
                 color:white;
                 border:2px solid white;
                 border-radius:50%;
-                width:30px;
-                height:30px;
-                line-height:26px;
+                width:32px;
+                height:32px;
+                line-height:28px;
                 text-align:center;
                 font-weight:bold;
-                font-size:13px;
-            ">{place['rank']}</div>
+                font-size:14px;
+                box-shadow:0 2px 5px rgba(0,0,0,0.4);
+            ">
+                {place['rank']}
+            </div>
             """,
-            icon_size=(30, 30),
-            icon_anchor=(15, 15)
+            icon_size=(32, 32),
+            icon_anchor=(16, 16)
         )
-    ).add_to(cluster)
 
-# 지도 출력
-st.subheader("📍 서울 관광지 지도")
+    ).add_to(marker_cluster)
+
+# ----------------------------------
+# 6. 지도 화면 출력
+# ----------------------------------
+
+st.subheader("📍 서울 주요 관광지 지도")
+
+st.caption(
+    "숫자 마커를 클릭하면 관광지 이름과 설명을 볼 수 있습니다."
+)
 
 st_folium(
     m,
-    width=None,
-    height=620,
-    use_container_width=True
+    height=600,
+    use_container_width=True,
+    returned_objects=[]
 )
+
+# ----------------------------------
+# 7. 관광지 설명
+# ----------------------------------
 
 st.divider()
 
-# 관광지 설명
-st.subheader("🏙️ 서울 주요 관광지 소개")
+st.header("🏙️ 서울 주요 관광지 TOP 10 소개")
 
 for i in range(0, len(PLACES), 2):
 
@@ -203,28 +246,36 @@ for i in range(0, len(PLACES), 2):
                 )
 
                 st.caption(
-                    f"{place['english']} · {place['category']}"
+                    f"{place['english']} | {place['category']}"
                 )
 
                 st.write(place["description"])
 
                 st.markdown(
-                    f"**추천 이유:** {place['reason']}"
+                    f"**⭐ 추천 이유**"
                 )
+
+                st.write(place["reason"])
 
                 st.caption(
                     f"위도: {place['lat']} / 경도: {place['lon']}"
                 )
 
+# ----------------------------------
+# 8. 참고 자료
+# ----------------------------------
+
 st.divider()
 
-st.markdown("### 📚 참고 자료")
+st.header("📚 참고 자료")
 
 st.markdown("""
 - [서울 공식 관광정보](https://english.visitseoul.net/)
-- [서울시 관광정보](https://data.seoul.go.kr/)
+- [서울 데이터 허브](https://data.seoul.go.kr/)
+- [OpenStreetMap 지도](https://www.openstreetmap.org/)
 """)
 
 st.caption(
-    "※ 관광지 위치와 방문 선호도는 조사 시기와 자료에 따라 달라질 수 있습니다."
+    "본 웹사이트는 OpenStreetMap을 활용하며 "
+    "별도의 Google Maps 또는 Kakao Maps API 키가 필요하지 않습니다."
 )

@@ -1,128 +1,133 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from pathlib import Path
 
-# 페이지 기본 설정
 st.set_page_config(
-    page_title="국가별 MBTI 비율 분석",
+    page_title="국가별 MBTI 분석",
     page_icon="🌍",
     layout="wide"
 )
 
 st.title("🌍 국가별 MBTI 비율 분석")
-st.write("국가를 선택하면 해당 국가의 MBTI 16가지 유형별 비율을 막대그래프로 확인할 수 있습니다.")
+st.write("국가를 선택하면 MBTI 16가지 유형별 비율을 확인할 수 있습니다.")
 
-# CSV 파일 경로: app.py와 같은 폴더에 있어야 합니다.
-DATA_FILE = Path(__file__).parent / "countriesMBTI_16types.csv"
+# 상위 폴더의 CSV 파일 불러오기
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_FILE = BASE_DIR / "countriesMBTI_16types.csv"
 
 @st.cache_data
-def load_data(file_path):
-    data = pd.read_csv(file_path)
-    data.columns = data.columns.str.strip()
+def load_data():
+    df = pd.read_csv(DATA_FILE)
+    df.columns = df.columns.str.strip()
 
-    if "Country" not in data.columns:
-        raise ValueError("CSV 파일에 'Country' 열이 없습니다.")
+    mbti_columns = [
+        col for col in df.columns if col != "Country"
+    ]
 
-    mbti_columns = [column for column in data.columns if column != "Country"]
+    for col in mbti_columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # MBTI 열을 숫자형으로 변환
-    for column in mbti_columns:
-        data[column] = pd.to_numeric(data[column], errors="coerce")
+    df = df.dropna(subset=["Country"])
+    df[mbti_columns] = df[mbti_columns].fillna(0)
 
-    data = data.dropna(subset=["Country"])
-    data[mbti_columns] = data[mbti_columns].fillna(0)
+    return df, mbti_columns
 
-    return data, mbti_columns
 
+# 데이터 불러오기
 if not DATA_FILE.exists():
-    st.error(
-        "데이터 파일을 찾을 수 없습니다. "
-        "'countriesMBTI_16types.csv' 파일을 app.py와 같은 폴더에 넣어주세요."
-    )
+    st.error(f"CSV 파일을 찾을 수 없습니다: {DATA_FILE}")
     st.stop()
 
 try:
-    df, mbti_columns = load_data(DATA_FILE)
-except Exception as error:
-    st.error(f"데이터를 읽는 중 오류가 발생했습니다: {error}")
+    df, mbti_columns = load_data()
+except Exception as e:
+    st.error(f"데이터 오류: {e}")
     st.stop()
 
 # 국가 선택
-countries = sorted(df["Country"].astype(str).unique().tolist())
+countries = sorted(df["Country"].astype(str).unique())
 selected_country = st.selectbox("국가 선택", countries)
 
-country_data = df.loc[df["Country"].astype(str) == selected_country, mbti_columns]
+# 선택한 국가 데이터
+country_data = df[
+    df["Country"].astype(str) == selected_country
+]
 
-if country_data.empty:
-    st.warning("선택한 국가의 데이터를 찾을 수 없습니다.")
-    st.stop()
+values = country_data.iloc[0][mbti_columns]
+values = values.astype(float).sort_values(ascending=False)
 
-# 선택 국가의 MBTI 비율을 내림차순으로 정렬
-values = country_data.iloc[0].astype(float).sort_values(ascending=False)
 types = values.index.tolist()
-raw_values = values.values.tolist()
+percentages = values.tolist()
 
-# 데이터가 0~1 사이의 비율이면 퍼센트로 변환
-if max(raw_values, default=0) <= 1:
-    percentages = [value * 100 for value in raw_values]
-    y_axis_title = "비율 (%)"
-else:
-    percentages = raw_values
-    y_axis_title = "비율"
+# 소수 비율을 백분율로 변환
+if max(percentages) <= 1:
+    percentages = [v * 100 for v in percentages]
 
-# 1위는 빨간색, 나머지는 파란색 계열에서 점점 밝아지는 그라데이션
+# 색상 설정
 blue_gradient = [
-    "#1769D2", "#2878D8", "#3987DE", "#4A96E4",
-    "#5BA5EA", "#6CB4EF", "#7DC2F3", "#8ED0F6",
-    "#9EDBFA", "#AFE4FC", "#BDEBFD", "#C9F0FE",
+    "#1769D2", "#2878D8", "#3987DE",
+    "#4A96E4", "#5BA5EA", "#6CB4EF",
+    "#7DC2F3", "#8ED0F6", "#9EDBFA",
+    "#AFE4FC", "#BDEBFD", "#C9F0FE",
     "#D3F4FE", "#DDF7FF", "#E7FAFF"
 ]
-bar_colors = ["#E53935"] + blue_gradient[:len(types) - 1]
 
-# 핵심 지표
-top_type = types[0]
-top_percentage = percentages[0]
+colors = ["#E53935"] + blue_gradient[:len(types)-1]
 
-metric1, metric2, metric3 = st.columns(3)
-metric1.metric("선택한 국가", selected_country)
-metric2.metric("가장 높은 유형", top_type)
-metric3.metric("1위 비율", f"{top_percentage:.2f}%")
+# 상단 정보
+col1, col2, col3 = st.columns(3)
 
-st.subheader(f"{selected_country}의 MBTI 유형별 비율")
+col1.metric("선택 국가", selected_country)
+col2.metric("1위 MBTI", types[0])
+col3.metric("1위 비율", f"{percentages[0]:.2f}%")
 
-fig = go.Figure(
-    data=[
-        go.Bar(
-            x=types,
-            y=percentages,
-            marker=dict(color=bar_colors, line=dict(width=0)),
-            text=[f"{value:.2f}%" for value in percentages],
-            textposition="outside",
-            hovertemplate="%{x}<br>비율: %{y:.2f}%<extra></extra>"
-        )
-    ]
+# 그래프
+st.subheader(f"{selected_country} MBTI 분포")
+
+fig = go.Figure()
+
+fig.add_trace(
+    go.Bar(
+        x=types,
+        y=percentages,
+        marker_color=colors,
+        text=[f"{v:.2f}%" for v in percentages],
+        textposition="outside",
+        cliponaxis=False,
+        hovertemplate="%{x}: %{y:.2f}%<extra></extra>"
+    )
 )
 
 fig.update_layout(
-    xaxis_title="MBTI 유형",
-    yaxis_title=y_axis_title,
     template="plotly_white",
     height=560,
-    margin=dict(l=40, r=30, t=35, b=45),
+    xaxis_title="MBTI 유형",
+    yaxis_title="비율 (%)",
     showlegend=False,
-    xaxis=dict(categoryorder="array", categoryarray=types),
-    yaxis=dict(rangemode="tozero", ticksuffix="%")
+    yaxis=dict(
+        rangemode="tozero",
+        ticksuffix="%"
+    )
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
-with st.expander("선택한 국가의 MBTI 비율 표 보기"):
-    result_table = pd.DataFrame({
-        "MBTI 유형": types,
-        "비율": [f"{value:.2f}%" for value in percentages]
+# 상세 표
+with st.expander("📊 MBTI 상세 비율 확인"):
+    result = pd.DataFrame({
+        "순위": range(1, 17),
+        "MBTI": types,
+        "비율": [f"{v:.2f}%" for v in percentages]
     })
-    st.dataframe(result_table, use_container_width=True, hide_index=True)
+
+    st.dataframe(
+        result,
+        use_container_width=True,
+        hide_index=True
+    )
 
 st.caption(
-    "참고: 이 그래프는 제공된 CSV 데이터의 비율을 시각화한 것입니다. "
+    "본 결과는 제공된 CSV 데이터에 기반한 분석입니다."
+)

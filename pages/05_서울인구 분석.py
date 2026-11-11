@@ -51,3 +51,14 @@ filtered = gender_data.copy()
 # 실제 데이터 확인
 with st.expander("선택된 데이터 확인"):
     st.dataframe(filtered, use_container_width=True)
+
+# =====================================
+# 오류 확인 기능
+# =====================================
+
+try:
+    st.write("데이터 처리 상태:", "정상")
+
+except Exception as e:
+    st.error("프로그램 실행 중 오류가 발생했습니다.")
+    st.exception(e)

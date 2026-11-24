@@ -1,34 +1,6 @@
+
 import pandas as pd
 import streamlit as st
-from pathlib import Path
-
-# CSV 파일 경로 설정
-BASE_DIR = Path(__file__).resolve().parent
-
-CSV_PATH = BASE_DIR / "Iris.csv"
-# 데이터 불러오기
-try:
-    try:
-        df = pd.read_csv(CSV_PATH, encoding="utf-8-sig")
-    except UnicodeDecodeError:
-        try:
-            df = pd.read_csv(CSV_PATH, encoding="cp949")
-        except UnicodeDecodeError:
-            df = pd.read_csv(CSV_PATH, encoding="latin1")
-
-    st.success("Iris.csv 데이터를 성공적으로 불러왔습니다!")
-
-except FileNotFoundError:
-    st.error("Iris.csv 파일을 찾을 수 없습니다.")
-
-except Exception as e:
-    st.error(f"데이터를 불러오지 못했습니다: {e}")
-
-    st.stop()
-BASE_DIR = Path(__file__).resolve().parent
-CSV_PATH = BASE_DIR / "Iris.csv"
-import streamlit as st
-import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
 from sklearn.ensemble import RandomForestClassifier
@@ -44,103 +16,116 @@ st.set_page_config(
 
 st.title("🌸 붓꽃 품종 예측 프로그램")
 st.write("꽃잎의 길이와 너비를 입력하면 붓꽃의 품종을 예측합니다.")
-
 st.divider()
 
+
 # --------------------------------
-# 2. 데이터 불러오기
+# 2. CSV 파일 자동 탐색
+# --------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+
+search_paths = [
+    BASE_DIR / "Iris.csv",
+    BASE_DIR.parent / "Iris.csv",
+    BASE_DIR.parent.parent / "Iris.csv"
+]
+
+CSV_PATH = None
+
+for path in search_paths:
+    if path.exists():
+        CSV_PATH = path
+        break
+
+if CSV_PATH is None:
+    st.error("Iris.csv 파일을 찾을 수 없습니다.")
+    st.write("검색한 위치:")
+    for path in search_paths:
+        st.write(str(path))
+    st.stop()
+
+
+# --------------------------------
+# 3. CSV 데이터 불러오기
 # --------------------------------
 @st.cache_data
-def load_data():
-    file_path = Path(__file__).parent / "Iris.csv"
+def load_data(file_path):
 
-    # 업로드한 CSV 파일은 CP949 인코딩 사용
-    data = pd.read_csv(file_path, encoding="cp949")
+    encodings = ["utf-8-sig", "cp949", "latin1"]
 
-    # 실제 CSV의 컬럼 위치를 기준으로 데이터 추출
+    data = None
+
+    for encoding in encodings:
+        try:
+            data = pd.read_csv(
+                file_path,
+                encoding=encoding
+            )
+            break
+
+        except UnicodeDecodeError:
+            continue
+
+    if data is None:
+        raise ValueError("CSV 인코딩을 확인할 수 없습니다.")
+
+    # 열 개수 확인
+    if len(data.columns) < 5:
+        raise ValueError(
+            "CSV 파일에 필요한 데이터 열이 부족합니다."
+        )
+
+    # 실제 CSV의 3, 4, 5번째 열 사용
     data = data.iloc[:, [2, 3, 4]].copy()
 
+    # 열 이름 통일
     data.columns = [
         "꽃잎 길이",
         "꽃잎 너비",
         "품종"
     ]
 
-    data["꽃잎 길이"] = pd.to_numeric(data["꽃잎 길이"])
-    data["꽃잎 너비"] = pd.to_numeric(data["꽃잎 너비"])
+    # 숫자 데이터 변환
+    data["꽃잎 길이"] = pd.to_numeric(
+        data["꽃잎 길이"],
+        errors="coerce"
+    )
+
+    data["꽃잎 너비"] = pd.to_numeric(
+        data["꽃잎 너비"],
+        errors="coerce"
+    )
+
+    # 품종 데이터 문자열 정리
+    data["품종"] = data["품종"].astype(str).str.strip()
+
+    # 결측값 제거
+    data = data.dropna()
+
+    data = data[
+        (data["품종"] != "") &
+        (data["품종"].str.lower() != "nan")
+    ]
+
+    if len(data) == 0:
+        raise ValueError("학습할 수 있는 데이터가 없습니다.")
 
     return data
 
 
 try:
-    df = pd.read_csv(CSV_PATH, encoding="utf-8-sig")
-
-except UnicodeDecodeError:
-    try:
-        df = pd.read_csv(CSV_PATH, encoding="cp949")
-
-    except UnicodeDecodeError:
-        df = pd.read_csv(CSV_PATH, encoding="latin1")
+    df = load_data(str(CSV_PATH))
+    st.success("🌸 Iris.csv 데이터를 성공적으로 불러왔습니다!")
 
 except Exception as e:
     st.error(f"데이터를 불러오지 못했습니다: {e}")
-    st.info("Iris.csv 파일이 app.py와 같은 폴더에 있는지 확인하세요.")
     st.stop()
 
+
 # --------------------------------
-# 3. 머신러닝 모델 생성
+# 4. 머신러닝 모델 생성
 # --------------------------------
-
-import re
-
-# CSV의 실제 열 이름 확인
-st.write("현재 CSV 열 이름:", df.columns.tolist())
-
-# 열 이름을 비교하기 쉽게 정리
-def normalize_column(name):
-    return re.sub(r"[^a-z0-9가-힣]", "", str(name).lower())
-
-# 실제 CSV에서 해당 열 찾기
-def find_column(candidates):
-    column_map = {
-        normalize_column(col): col for col in df.columns
-    }
-
-    for candidate in candidates:
-        key = normalize_column(candidate)
-        if key in column_map:
-            return column_map[key]
-
-    return None
-
-# 꽃잎 길이와 너비 열 찾기
-petal_length_col = find_column([
-    "꽃잎 길이",
-    "꽃잎 길이 꽃잎",
-    "petal_length",
-    "PetalLengthCm",
-    "petal length (cm)"
-])
-])
-
-petal_width_col = find_column([
-    "꽃잎 너비",
-    "petal_width",
-    "PetalWidthCm",
-    "petal width (cm)"
-])
-
-# 열이 존재하는지 확인
-if petal_length_col is None or petal_width_col is None:
-    st.error("꽃잎 길이 또는 꽃잎 너비 열을 찾을 수 없습니다.")
-    st.write("실제 CSV 열 이름:", df.columns.tolist())
-    st.stop()
-
-# 머신러닝 학습 데이터 생성
-X = df[[petal_length_col, petal_width_col]]
-
-st.success("꽃잎 길이와 너비 데이터를 정상적으로 불러왔습니다!")
-
+X = df[["꽃잎 길이", "꽃잎 너비"]]
 y = df["품종"]
 
 model = RandomForestClassifier(
@@ -150,42 +135,63 @@ model = RandomForestClassifier(
 
 model.fit(X, y)
 
+st.subheader("📌 학습 데이터 정보")
+
+col1, col2, col3 = st.columns(3)
+
+col1.metric("전체 데이터", f"{len(df)}개")
+col2.metric("붓꽃 품종 수", f"{df['품종'].nunique()}종")
+col3.metric("예측 모델", "Random Forest")
+
+
 # --------------------------------
-# 4. 데이터 범위 안내
+# 5. 데이터 범위 안내
 # --------------------------------
 st.subheader("📌 입력 가능한 데이터 범위")
+
+min_length = float(df["꽃잎 길이"].min())
+max_length = float(df["꽃잎 길이"].max())
+
+min_width = float(df["꽃잎 너비"].min())
+max_width = float(df["꽃잎 너비"].max())
 
 col1, col2 = st.columns(2)
 
 with col1:
     st.metric(
         "꽃잎 길이",
-        f"{df['꽃잎 길이'].min():.1f} ~ {df['꽃잎 길이'].max():.1f} cm"
+        f"{min_length:.1f} ~ {max_length:.1f} cm"
     )
 
 with col2:
     st.metric(
         "꽃잎 너비",
-        f"{df['꽃잎 너비'].min():.1f} ~ {df['꽃잎 너비'].max():.1f} cm"
+        f"{min_width:.1f} ~ {max_width:.1f} cm"
     )
 
-st.caption("위 범위는 Iris.csv 데이터의 최솟값과 최댓값을 기준으로 합니다.")
+st.caption(
+    "입력 범위는 Iris.csv 데이터의 최솟값과 최댓값을 기준으로 합니다."
+)
 
 st.divider()
 
+
 # --------------------------------
-# 5. 사용자 입력
+# 6. 사용자 입력
 # --------------------------------
 st.subheader("✏️ 꽃잎 크기 입력")
 
 col1, col2 = st.columns(2)
 
+default_length = min(max(1.4, min_length), max_length)
+default_width = min(max(0.2, min_width), max_width)
+
 with col1:
     petal_length = st.number_input(
         "꽃잎 길이 (cm)",
-        min_value=float(df["꽃잎 길이"].min()),
-        max_value=float(df["꽃잎 길이"].max()),
-        value=1.4,
+        min_value=min_length,
+        max_value=max_length,
+        value=default_length,
         step=0.1,
         format="%.1f"
     )
@@ -193,15 +199,16 @@ with col1:
 with col2:
     petal_width = st.number_input(
         "꽃잎 너비 (cm)",
-        min_value=float(df["꽃잎 너비"].min()),
-        max_value=float(df["꽃잎 너비"].max()),
-        value=0.2,
+        min_value=min_width,
+        max_value=max_width,
+        value=default_width,
         step=0.1,
         format="%.1f"
     )
 
+
 # --------------------------------
-# 6. 품종 예측
+# 7. 품종 예측
 # --------------------------------
 if st.button("🌸 품종 예측하기", use_container_width=True):
 
@@ -219,12 +226,20 @@ if st.button("🌸 품종 예측하기", use_container_width=True):
 
     st.subheader("🔎 예측 결과")
 
-    if prediction == "Iris-setosa":
+    # 품종 이름 한글 표시
+    name = str(prediction).lower()
+
+    if "setosa" in name:
         korean_name = "아이리스 세토사 (Setosa)"
-    elif prediction == "Iris-versicolor":
+
+    elif "versicolor" in name:
         korean_name = "아이리스 버시컬러 (Versicolor)"
-    else:
+
+    elif "virginica" in name:
         korean_name = "아이리스 버지니카 (Virginica)"
+
+    else:
+        korean_name = str(prediction)
 
     st.markdown(
         f"<h2 style='text-align:center;'>{korean_name}</h2>",
@@ -233,34 +248,35 @@ if st.button("🌸 품종 예측하기", use_container_width=True):
 
     st.write(f"예측 품종: **{prediction}**")
 
-    st.write("### 품종별 예측 확률")
+    # --------------------------------
+    # 8. 품종별 예측 확률
+    # --------------------------------
+    st.write("### 📊 품종별 예측 확률")
 
     probability_df = pd.DataFrame({
         "품종": classes,
-        "예측 확률": probabilities
+        "예측 확률": probabilities * 100
     })
 
-    probability_df["예측 확률"] = (
-        probability_df["예측 확률"] * 100
-    )
-
     st.bar_chart(
-        probability_df.set_index("품종")
+        probability_df.set_index("품종"),
+        y="예측 확률"
     )
 
     st.divider()
 
     # --------------------------------
-    # 7. 산점도 그래프
+    # 9. 산점도 그래프
     # --------------------------------
     st.subheader("📊 꽃잎 크기별 품종 분포")
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
-    # 기존 붓꽃 데이터
     for species in df["품종"].unique():
 
-        species_data = df[df["품종"] == species]
+        species_data = df[
+            df["품종"] == species
+        ]
 
         ax.scatter(
             species_data["꽃잎 길이"],
@@ -270,7 +286,7 @@ if st.button("🌸 품종 예측하기", use_container_width=True):
             s=45
         )
 
-    # 사용자가 입력한 위치: 노란색 별
+    # 사용자 입력 위치
     ax.scatter(
         petal_length,
         petal_width,
@@ -298,19 +314,26 @@ if st.button("🌸 품종 예측하기", use_container_width=True):
     plt.close(fig)
 
     st.info(
-        f"노란색 별표(★)가 입력한 위치입니다. "
-        f"꽃잎 길이 {petal_length:.1f}cm, "
-        f"꽃잎 너비 {petal_width:.1f}cm"
+        f"노란색 별표(★)가 입력한 위치입니다.\n\n"
+        f"꽃잎 길이: {petal_length:.1f}cm\n\n"
+        f"꽃잎 너비: {petal_width:.1f}cm"
     )
 
+
 # --------------------------------
-# 8. 데이터 미리보기
+# 10. 데이터 미리보기
 # --------------------------------
 with st.expander("📋 Iris 데이터 확인하기"):
 
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
 
     st.write("전체 데이터 개수:", len(df))
 
     st.write("품종별 데이터 개수:")
-    st.write(df["품종"].value_counts())
+
+    st.write(
+        df["품종"].value_counts()
+    )

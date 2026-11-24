@@ -116,9 +116,11 @@ def find_column(candidates):
 # 꽃잎 길이와 너비 열 찾기
 petal_length_col = find_column([
     "꽃잎 길이",
+    "꽃잎 길이 꽃잎",
     "petal_length",
     "PetalLengthCm",
     "petal length (cm)"
+])
 ])
 
 petal_width_col = find_column([

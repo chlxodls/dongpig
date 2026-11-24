@@ -90,7 +90,55 @@ except Exception as e:
 # --------------------------------
 # 3. 머신러닝 모델 생성
 # --------------------------------
-X = df[["꽃잎 길이", "꽃잎 너비"]]
+
+import re
+
+# CSV의 실제 열 이름 확인
+st.write("현재 CSV 열 이름:", df.columns.tolist())
+
+# 열 이름을 비교하기 쉽게 정리
+def normalize_column(name):
+    return re.sub(r"[^a-z0-9가-힣]", "", str(name).lower())
+
+# 실제 CSV에서 해당 열 찾기
+def find_column(candidates):
+    column_map = {
+        normalize_column(col): col for col in df.columns
+    }
+
+    for candidate in candidates:
+        key = normalize_column(candidate)
+        if key in column_map:
+            return column_map[key]
+
+    return None
+
+# 꽃잎 길이와 너비 열 찾기
+petal_length_col = find_column([
+    "꽃잎 길이",
+    "petal_length",
+    "PetalLengthCm",
+    "petal length (cm)"
+])
+
+petal_width_col = find_column([
+    "꽃잎 너비",
+    "petal_width",
+    "PetalWidthCm",
+    "petal width (cm)"
+])
+
+# 열이 존재하는지 확인
+if petal_length_col is None or petal_width_col is None:
+    st.error("꽃잎 길이 또는 꽃잎 너비 열을 찾을 수 없습니다.")
+    st.write("실제 CSV 열 이름:", df.columns.tolist())
+    st.stop()
+
+# 머신러닝 학습 데이터 생성
+X = df[[petal_length_col, petal_width_col]]
+
+st.success("꽃잎 길이와 너비 데이터를 정상적으로 불러왔습니다!")
+
 y = df["품종"]
 
 model = RandomForestClassifier(

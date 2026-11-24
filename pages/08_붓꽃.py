@@ -1,4 +1,32 @@
+import pandas as pd
+import streamlit as st
+from pathlib import Path
 
+# CSV 파일 경로 설정
+BASE_DIR = Path(__file__).resolve().parent
+
+CSV_PATH = BASE_DIR / "Iris.csv"
+# 데이터 불러오기
+try:
+    try:
+        df = pd.read_csv(CSV_PATH, encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        try:
+            df = pd.read_csv(CSV_PATH, encoding="cp949")
+        except UnicodeDecodeError:
+            df = pd.read_csv(CSV_PATH, encoding="latin1")
+
+    st.success("Iris.csv 데이터를 성공적으로 불러왔습니다!")
+
+except FileNotFoundError:
+    st.error("Iris.csv 파일을 찾을 수 없습니다.")
+
+except Exception as e:
+    st.error(f"데이터를 불러오지 못했습니다: {e}")
+
+    st.stop()
+BASE_DIR = Path(__file__).resolve().parent
+CSV_PATH = BASE_DIR / "Iris.csv"
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt

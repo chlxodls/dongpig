@@ -45,7 +45,14 @@ def load_data():
 
 
 try:
-    df = load_data()
+    df = pd.read_csv(CSV_PATH, encoding="utf-8-sig")
+
+except UnicodeDecodeError:
+    try:
+        df = pd.read_csv(CSV_PATH, encoding="cp949")
+
+    except UnicodeDecodeError:
+        df = pd.read_csv(CSV_PATH, encoding="latin1")
 
 except Exception as e:
     st.error(f"데이터를 불러오지 못했습니다: {e}")

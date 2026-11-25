@@ -1,542 +1,569 @@
 
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-from pathlib import Path
+import requests
+from urllib.parse import quote
 
-# ==========================================
-# 1. 페이지 설정
-# ==========================================
+# -----------------------------------------
+# 1. 기본 설정
+# -----------------------------------------
 st.set_page_config(
     page_title="VALORANT 한국 서버 통계",
     page_icon="🎮",
     layout="wide"
 )
 
-st.title("🎮 VALORANT 한국 서버 통계 분석")
-st.caption("요원별 · 랭크별 · 맵별 승률 분석 시스템")
+API_URL = "https://api.ugilabs.com"
+REGION = "kr"
 
+st.title("🎮 VALORANT 한국 서버 통계")
+st.caption("실제 경쟁전 경기 기록 기반 분석")
 st.divider()
 
-# ==========================================
-# 2. 기본 설정
-# ==========================================
-rank_order = [
-    "아이언", "브론즈", "실버", "골드",
-    "플래티넘", "다이아몬드", "초월자",
-    "불멸", "레디언트"
-]
-
-rank_alias = {
-    "iron": "아이언",
-    "bronze": "브론즈",
-    "silver": "실버",
-    "gold": "골드",
-    "platinum": "플래티넘",
-    "diamond": "다이아몬드",
-    "ascendant": "초월자",
-    "immortal": "불멸",
-    "radiant": "레디언트"
+# -----------------------------------------
+# 2. 랭크 변환
+# -----------------------------------------
+rank_names = {
+    0: "언랭크",
+    3: "아이언 1",
+    4: "아이언 2",
+    5: "아이언 3",
+    6: "브론즈 1",
+    7: "브론즈 2",
+    8: "브론즈 3",
+    9: "실버 1",
+    10: "실버 2",
+    11: "실버 3",
+    12: "골드 1",
+    13: "골드 2",
+    14: "골드 3",
+    15: "플래티넘 1",
+    16: "플래티넘 2",
+    17: "플래티넘 3",
+    18: "다이아몬드 1",
+    19: "다이아몬드 2",
+    20: "다이아몬드 3",
+    21: "초월자 1",
+    22: "초월자 2",
+    23: "초월자 3",
+    24: "불멸 1",
+    25: "불멸 2",
+    26: "불멸 3",
+    27: "레디언트"
 }
 
-region_alias = {
-    "kr": "한국",
-    "korea": "한국",
-    "한국 서버": "한국",
-    "한국": "한국",
-    "ap": "아시아 태평양",
-    "asia": "아시아 태평양"
-}
+rank_order = list(rank_names.values())
 
-# ==========================================
-# 3. CSV 파일 업로드 및 탐색
-# ==========================================
-BASE_DIR = Path(__file__).resolve().parent
+def get_rank(tier):
+    try:
+        return rank_names.get(int(tier), "랭크 정보 없음")
+    except (TypeError, ValueError):
+        return "랭크 정보 없음"
 
-search_paths = [
-    BASE_DIR / "valorant_stats.csv",
-    BASE_DIR.parent / "valorant_stats.csv",
-    BASE_DIR.parent.parent / "valorant_stats.csv"
-]
 
-uploaded_file = st.file_uploader(
-    "📂 발로란트 통계 CSV 업로드",
-    type=["csv"]
-)
+# -----------------------------------------
+# 3. API 요청 함수
+# -----------------------------------------
+def api_get(endpoint, api_key, params=None):
 
-st.download_button(
-    "📥 CSV 작성 양식 다운로드",
-    data=pd.DataFrame(columns=[
-        "region", "map", "rank",
-        "agent", "role", "wins", "matches"
-    ]).to_csv(index=False).encode("utf-8-sig"),
-    file_name="valorant_stats_template.csv",
-    mime="text/csv"
-)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json"
+    }
 
-# ==========================================
-# 4. 데이터 불러오기
-# ==========================================
-def read_csv_auto(source):
+    response = requests.get(
+        API_URL + endpoint,
+        headers=headers,
+        params=params,
+        timeout=25
+    )
 
-    for encoding in ["utf-8-sig", "cp949", "latin1"]:
+    try:
+        result = response.json()
+    except ValueError:
+        raise Exception("API 응답을 해석할 수 없습니다.")
 
-        try:
-            if isinstance(source, bytes):
-                return pd.read_csv(
-                    pd.io.common.BytesIO(source),
-                    encoding=encoding
-                )
-            else:
-                return pd.read_csv(
-                    source,
-                    encoding=encoding
-                )
+    if response.status_code != 200:
+        message = result.get(
+            "error",
+            "알 수 없는 API 오류"
+        )
+        code = result.get("code", "")
 
-        except UnicodeDecodeError:
-            continue
+        raise Exception(
+            f"API 오류 {response.status_code}: "
+            f"{message} ({code})"
+        )
 
-    raise ValueError("CSV 인코딩을 확인해 주세요.")
+    if result.get("status", 200) != 200:
+        raise Exception(
+            result.get("error", "API 요청 실패")
+        )
 
+    return result.get("data", result)
+
+
+# -----------------------------------------
+# 4. Riot ID 입력
+# -----------------------------------------
+st.subheader("🔎 플레이어 검색")
 
 try:
+    saved_key = st.secrets["UGI_API_KEY"]
+except Exception:
+    saved_key = ""
 
-    if uploaded_file is not None:
+with st.form("search_form"):
 
-        df = read_csv_auto(
-            uploaded_file.getvalue()
-        )
-
+    if saved_key:
+        api_key = saved_key
+        st.success("Streamlit Secrets에서 API 키를 불러왔습니다.")
     else:
-
-        csv_path = next(
-            (p for p in search_paths if p.exists()),
-            None
+        api_key = st.text_input(
+            "ugiAPI Key",
+            type="password",
+            help="API 키는 채팅에 공유하지 마세요."
         )
 
-        if csv_path is None:
-            st.info(
-                "통계 CSV 파일을 업로드해 주세요."
-            )
-            st.stop()
-
-        df = read_csv_auto(csv_path)
-
-except Exception as e:
-
-    st.error(f"데이터 불러오기 실패: {e}")
-    st.stop()
-
-
-# ==========================================
-# 5. 데이터 검증
-# ==========================================
-required_columns = [
-    "region", "map", "rank",
-    "agent", "wins", "matches"
-]
-
-missing = [
-    col for col in required_columns
-    if col not in df.columns
-]
-
-if missing:
-
-    st.error(
-        f"CSV에 다음 열이 필요합니다: {missing}"
-    )
-
-    st.stop()
-
-if "role" not in df.columns:
-    df["role"] = "기타"
-
-# 문자열 정리
-for col in ["region", "map", "rank", "agent", "role"]:
-
-    df[col] = (
-        df[col]
-        .astype(str)
-        .str.strip()
-    )
-
-# 서버 이름 통일
-df["region"] = df["region"].apply(
-    lambda x: region_alias.get(x.lower(), x)
-)
-
-# 랭크 이름 통일
-df["rank"] = df["rank"].apply(
-    lambda x: rank_alias.get(x.lower(), x)
-)
-
-# 숫자 변환
-df["wins"] = pd.to_numeric(
-    df["wins"], errors="coerce"
-)
-
-df["matches"] = pd.to_numeric(
-    df["matches"], errors="coerce"
-)
-
-df = df.dropna(
-    subset=[
-        "region", "map", "rank",
-        "agent", "wins", "matches"
-    ]
-)
-
-df = df[
-    (df["wins"] >= 0) &
-    (df["matches"] > 0) &
-    (df["wins"] <= df["matches"])
-].copy()
-
-if df.empty:
-    st.error("분석 가능한 데이터가 없습니다.")
-    st.stop()
-
-# ==========================================
-# 6. 한국 서버 데이터 필터링
-# ==========================================
-korea_df = df[
-    df["region"] == "한국"
-].copy()
-
-if korea_df.empty:
-
-    st.warning(
-        "한국 서버 데이터가 없습니다. "
-        "CSV의 region 열에 KR 또는 한국을 입력해 주세요."
-    )
-
-    st.stop()
-
-korea_df["승률"] = (
-    korea_df["wins"] /
-    korea_df["matches"] * 100
-)
-
-st.success(
-    f"한국 서버 데이터 확인 완료: "
-    f"{len(korea_df):,}개 데이터"
-)
-
-# ==========================================
-# 7. 전체 통계
-# ==========================================
-st.subheader("📊 한국 서버 전체 통계")
-
-total_matches = int(korea_df["matches"].sum())
-total_wins = int(korea_df["wins"].sum())
-
-overall_rate = (
-    total_wins / total_matches * 100
-)
-
-col1, col2, col3 = st.columns(3)
-
-col1.metric(
-    "총 경기 수",
-    f"{total_matches:,}회"
-)
-
-col2.metric(
-    "총 승리 수",
-    f"{total_wins:,}회"
-)
-
-col3.metric(
-    "가중 평균 승률",
-    f"{overall_rate:.2f}%"
-)
-
-st.divider()
-
-# ==========================================
-# 8. 분석 필터
-# ==========================================
-st.subheader("🔎 분석 조건 선택")
-
-col1, col2, col3 = st.columns(3)
-
-available_maps = sorted(
-    korea_df["map"].unique()
-)
-
-available_ranks = [
-    r for r in rank_order
-    if r in korea_df["rank"].unique()
-]
-
-available_ranks += [
-    r for r in korea_df["rank"].unique()
-    if r not in rank_order
-]
-
-with col1:
-
-    selected_map = st.selectbox(
-        "🗺️ 맵 선택",
-        available_maps
-    )
-
-with col2:
-
-    selected_rank = st.selectbox(
-        "🏆 랭크 선택",
-        ["전체 랭크"] + available_ranks
-    )
-
-with col3:
-
-    selected_role = st.selectbox(
-        "🎯 요원 역할 선택",
-        ["전체 역할"] +
-        sorted(korea_df["role"].unique())
-    )
-
-# 필터 적용
-filtered_df = korea_df[
-    korea_df["map"] == selected_map
-].copy()
-
-if selected_rank != "전체 랭크":
-
-    filtered_df = filtered_df[
-        filtered_df["rank"] == selected_rank
-    ]
-
-if selected_role != "전체 역할":
-
-    filtered_df = filtered_df[
-        filtered_df["role"] == selected_role
-    ]
-
-if filtered_df.empty:
-
-    st.warning(
-        "선택한 조건에 해당하는 데이터가 없습니다."
-    )
-
-    st.stop()
-
-# ==========================================
-# 9. 맵별 요원 승률 계산
-# ==========================================
-st.divider()
-
-st.subheader(
-    f"🗺️ {selected_map} 맵 요원별 승률"
-)
-
-map_agent_stats = (
-    filtered_df
-    .groupby(
-        ["agent", "role"],
-        as_index=False
-    )
-    .agg({
-        "wins": "sum",
-        "matches": "sum"
-    })
-)
-
-map_agent_stats["승률"] = (
-    map_agent_stats["wins"] /
-    map_agent_stats["matches"] * 100
-)
-
-map_agent_stats = map_agent_stats.sort_values(
-    "승률",
-    ascending=False
-)
-
-col1, col2 = st.columns(2)
-
-with col1:
-
-    st.metric(
-        "분석 대상 요원",
-        f"{len(map_agent_stats)}명"
-    )
-
-with col2:
-
-    st.metric(
-        "해당 맵 경기 수",
-        f"{int(filtered_df['matches'].sum()):,}회"
-    )
-
-# ==========================================
-# 10. 맵별 요원 승률 그래프
-# ==========================================
-st.write("### 📈 요원별 승률 비교")
-
-chart_data = map_agent_stats.set_index(
-    "agent"
-)[["승률"]]
-
-st.bar_chart(
-    chart_data,
-    y="승률"
-)
-
-# ==========================================
-# 11. TOP 5 요원
-# ==========================================
-st.write("### 🥇 맵별 승률 TOP 5")
-
-top5 = map_agent_stats.head(5).copy()
-
-for i, (_, row) in enumerate(
-    top5.iterrows(),
-    start=1
-):
-
-    col1, col2, col3 = st.columns([1, 3, 2])
-
-    col1.write(f"**{i}위**")
-    col2.write(
-        f"**{row['agent']}** ({row['role']})"
-    )
-    col3.write(
-        f"**{row['승률']:.2f}%**"
-    )
-
-# ==========================================
-# 12. 맵별 요원 상세 표
-# ==========================================
-st.write("### 📋 맵별 상세 통계")
-
-st.dataframe(
-    map_agent_stats[
-        ["agent", "role", "wins", "matches", "승률"]
-    ].rename(columns={
-        "agent": "요원",
-        "role": "역할",
-        "wins": "승리",
-        "matches": "경기 수"
-    }),
-    use_container_width=True,
-    hide_index=True
-)
-
-# ==========================================
-# 13. 맵별 전체 요원 비교
-# ==========================================
-st.divider()
-
-st.subheader("🌍 전체 맵별 요원 승률 비교")
-
-all_map_stats = (
-    korea_df
-    .groupby(
-        ["map", "agent"],
-        as_index=False
-    )
-    .agg({
-        "wins": "sum",
-        "matches": "sum"
-    })
-)
-
-all_map_stats["승률"] = (
-    all_map_stats["wins"] /
-    all_map_stats["matches"] * 100
-)
-
-selected_agent = st.selectbox(
-    "비교할 요원 선택",
-    sorted(korea_df["agent"].unique())
-)
-
-agent_map_stats = all_map_stats[
-    all_map_stats["agent"] == selected_agent
-].sort_values(
-    "승률",
-    ascending=False
-)
-
-st.write(
-    f"### {selected_agent} 맵별 승률"
-)
-
-st.bar_chart(
-    agent_map_stats.set_index("map")[["승률"]]
-)
-
-st.dataframe(
-    agent_map_stats[
-        ["map", "wins", "matches", "승률"]
-    ].rename(columns={
-        "map": "맵",
-        "wins": "승리",
-        "matches": "경기 수"
-    }),
-    use_container_width=True,
-    hide_index=True
-)
-
-# ==========================================
-# 14. 랭크별 요원 승률
-# ==========================================
-st.divider()
-
-st.subheader("🏆 랭크별 요원 승률")
-
-rank_agent_stats = (
-    korea_df
-    .groupby(
-        ["rank", "agent"],
-        as_index=False
-    )
-    .agg({
-        "wins": "sum",
-        "matches": "sum"
-    })
-)
-
-rank_agent_stats["승률"] = (
-    rank_agent_stats["wins"] /
-    rank_agent_stats["matches"] * 100
-)
-
-rank_filter = st.selectbox(
-    "랭크별 분석 선택",
-    available_ranks,
-    key="rank_analysis"
-)
-
-rank_result = rank_agent_stats[
-    rank_agent_stats["rank"] == rank_filter
-].sort_values(
-    "승률",
-    ascending=False
-)
-
-st.bar_chart(
-    rank_result.set_index("agent")[["승률"]]
-)
-
-# ==========================================
-# 15. 데이터 미리보기
-# ==========================================
-with st.expander("📂 한국 서버 원본 데이터 확인"):
-
-    st.dataframe(
-        korea_df,
+    col1, col2 = st.columns(2)
+
+    with col1:
+        player_name = st.text_input(
+            "Riot ID 이름",
+            placeholder="예: PlayerName"
+        )
+
+    with col2:
+        player_tag = st.text_input(
+            "Riot ID 태그",
+            placeholder="예: KR1"
+        )
+
+    submitted = st.form_submit_button(
+        "🔍 실제 통계 가져오기",
         use_container_width=True
     )
 
-    st.write(
-        "데이터 개수:",
-        len(korea_df)
+
+# -----------------------------------------
+# 5. 실제 데이터 가져오기
+# -----------------------------------------
+if submitted:
+
+    if not api_key or not player_name or not player_tag:
+        st.error("API 키와 Riot ID를 모두 입력해주세요.")
+        st.stop()
+
+    try:
+        encoded_name = quote(player_name.strip(), safe="")
+        encoded_tag = quote(player_tag.strip(), safe="")
+
+        with st.spinner("한국 서버 데이터를 가져오는 중..."):
+
+            # 현재 랭크 조회
+            try:
+                rank_data = api_get(
+                    f"/v1/rank/{REGION}/{encoded_name}/{encoded_tag}",
+                    api_key
+                )
+            except Exception as e:
+                rank_data = None
+                rank_error = str(e)
+
+            # 최근 경쟁전 5경기 조회
+            match_data = api_get(
+                f"/v1/matches/{REGION}/{encoded_name}/{encoded_tag}",
+                api_key,
+                params={
+                    "mode": "competitive",
+                    "size": 5
+                }
+            )
+
+        matches = match_data.get("matches", [])
+
+        if not matches:
+            st.warning("조회된 경쟁전 기록이 없습니다.")
+            st.stop()
+
+        # ---------------------------------
+        # 6. 경기 데이터 정리
+        # ---------------------------------
+        records = []
+
+        for match in matches:
+
+            player = match.get("player", {})
+
+            agent_info = player.get(
+                "character_details", {}
+            )
+
+            agent_name = agent_info.get(
+                "name",
+                "알 수 없음"
+            )
+
+            team = player.get("team")
+
+            teams = match.get("teams", {})
+
+            result = teams.get(team, {})
+
+            won = result.get("won")
+
+            if won is None:
+                continue
+
+            tier = player.get("competitive_tier")
+
+            rank = get_rank(tier)
+
+            map_info = match.get("map_details", {})
+
+            map_name = map_info.get(
+                "name",
+                "알 수 없음"
+            )
+
+            stats = player.get("stats", {})
+
+            records.append({
+                "요원": agent_name,
+                "랭크": rank,
+                "맵": map_name,
+                "승리": int(bool(won)),
+                "결과": "승리" if won else "패배",
+                "킬": stats.get("kills", 0),
+                "데스": stats.get("deaths", 0),
+                "어시스트": stats.get("assists", 0),
+                "시작 시간": match.get("game_start", "")
+            })
+
+        if not records:
+            st.warning("승패를 확인할 수 있는 경기 데이터가 없습니다.")
+            st.stop()
+
+        df = pd.DataFrame(records)
+
+        # ---------------------------------
+        # 7. 전체 경기 요약
+        # ---------------------------------
+        st.success(
+            f"{player_name}#{player_tag}의 "
+            f"한국 서버 경쟁전 데이터를 불러왔습니다!"
+        )
+
+        st.info(
+            "분석 범위: 입력한 플레이어의 최근 경쟁전 기록. "
+            "한국 서버 전체 플레이어의 통계는 아닙니다."
+        )
+
+        st.subheader("📊 경기 요약")
+
+        total_matches = len(df)
+        total_wins = int(df["승리"].sum())
+        total_losses = total_matches - total_wins
+
+        win_rate = (
+            total_wins / total_matches * 100
+        )
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        col1.metric("분석 경기", f"{total_matches}회")
+        col2.metric("승리", f"{total_wins}회")
+        col3.metric("패배", f"{total_losses}회")
+        col4.metric("승률", f"{win_rate:.1f}%")
+
+        # ---------------------------------
+        # 8. 현재 랭크
+        # ---------------------------------
+        st.divider()
+        st.subheader("🏆 현재 경쟁전 랭크")
+
+        if rank_data:
+
+            current_data = rank_data.get(
+                "current_data", {}
+            )
+
+            current_tier = current_data.get("currenttier")
+
+            current_rank = get_rank(current_tier)
+
+            if current_rank == "랭크 정보 없음":
+                current_rank = current_data.get(
+                    "currenttierpatched",
+                    "정보 없음"
+                )
+
+            col1, col2, col3 = st.columns(3)
+
+            col1.metric("현재 랭크", current_rank)
+
+            col2.metric(
+                "RR",
+                current_data.get("ranking_in_tier", "정보 없음")
+            )
+
+            col3.metric(
+                "현재 시즌 승리",
+                current_data.get("wins", "정보 없음")
+            )
+
+            st.caption(
+                f"랭크 기준 시각: "
+                f"{current_data.get('as_of', '정보 없음')}"
+            )
+
+        else:
+            st.warning(
+                f"현재 랭크 정보를 조회하지 못했습니다: "
+                f"{rank_error}"
+            )
+
+        # ---------------------------------
+        # 9. 요원별 승률
+        # ---------------------------------
+        st.divider()
+        st.subheader("🎯 요원별 승률")
+
+        agent_stats = (
+            df.groupby("요원")
+            .agg(
+                경기수=("승리", "count"),
+                승리=("승리", "sum")
+            )
+            .reset_index()
+        )
+
+        agent_stats["승률"] = (
+            agent_stats["승리"] /
+            agent_stats["경기수"] * 100
+        )
+
+        agent_stats = agent_stats.sort_values(
+            "승률",
+            ascending=False
+        )
+
+        st.bar_chart(
+            agent_stats.set_index("요원")[["승률"]]
+        )
+
+        st.dataframe(
+            agent_stats,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # ---------------------------------
+        # 10. 랭크별 승률
+        # ---------------------------------
+        st.divider()
+        st.subheader("🏅 랭크별 승률")
+
+        rank_stats = (
+            df.groupby("랭크")
+            .agg(
+                경기수=("승리", "count"),
+                승리=("승리", "sum")
+            )
+            .reset_index()
+        )
+
+        rank_stats["승률"] = (
+            rank_stats["승리"] /
+            rank_stats["경기수"] * 100
+        )
+
+        rank_stats["정렬"] = rank_stats["랭크"].apply(
+            lambda x: (
+                rank_order.index(x)
+                if x in rank_order else 999
+            )
+        )
+
+        rank_stats = rank_stats.sort_values("정렬")
+
+        st.bar_chart(
+            rank_stats.set_index("랭크")[["승률"]]
+        )
+
+        st.dataframe(
+            rank_stats[
+                ["랭크", "경기수", "승리", "승률"]
+            ],
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # ---------------------------------
+        # 11. 랭크별 요원 승률
+        # ---------------------------------
+        st.divider()
+        st.subheader("🎮 랭크별 요원 승률 비교")
+
+        rank_agent_stats = (
+            df.groupby(["랭크", "요원"])
+            .agg(
+                경기수=("승리", "count"),
+                승리=("승리", "sum")
+            )
+            .reset_index()
+        )
+
+        rank_agent_stats["승률"] = (
+            rank_agent_stats["승리"] /
+            rank_agent_stats["경기수"] * 100
+        )
+
+        selected_rank = st.selectbox(
+            "비교할 랭크 선택",
+            rank_agent_stats["랭크"].unique()
+        )
+
+        filtered_rank = rank_agent_stats[
+            rank_agent_stats["랭크"] == selected_rank
+        ].sort_values("승률", ascending=False)
+
+        st.bar_chart(
+            filtered_rank.set_index("요원")[["승률"]]
+        )
+
+        st.dataframe(
+            filtered_rank,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # ---------------------------------
+        # 12. 맵별 요원 승률
+        # ---------------------------------
+        st.divider()
+        st.subheader("🗺️ 맵별 요원 승률")
+
+        map_agent_stats = (
+            df.groupby(["맵", "요원"])
+            .agg(
+                경기수=("승리", "count"),
+                승리=("승리", "sum")
+            )
+            .reset_index()
+        )
+
+        map_agent_stats["승률"] = (
+            map_agent_stats["승리"] /
+            map_agent_stats["경기수"] * 100
+        )
+
+        selected_map = st.selectbox(
+            "맵 선택",
+            map_agent_stats["맵"].unique()
+        )
+
+        filtered_map = map_agent_stats[
+            map_agent_stats["맵"] == selected_map
+        ].sort_values("승률", ascending=False)
+
+        st.bar_chart(
+            filtered_map.set_index("요원")[["승률"]]
+        )
+
+        st.dataframe(
+            filtered_map,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # ---------------------------------
+        # 13. K/D 분석
+        # ---------------------------------
+        st.divider()
+        st.subheader("⚔️ 요원별 전투 지표")
+
+        combat_stats = (
+            df.groupby("요원")
+            .agg(
+                킬=("킬", "sum"),
+                데스=("데스", "sum"),
+                어시스트=("어시스트", "sum")
+            )
+            .reset_index()
+        )
+
+        combat_stats["K/D"] = (
+            combat_stats["킬"] /
+            combat_stats["데스"].replace(0, 1)
+        )
+
+        st.dataframe(
+            combat_stats,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # ---------------------------------
+        # 14. 최근 경기 기록
+        # ---------------------------------
+        st.divider()
+        st.subheader("📋 최근 경쟁전 기록")
+
+        st.dataframe(
+            df[
+                [
+                    "시작 시간",
+                    "맵",
+                    "요원",
+                    "랭크",
+                    "결과",
+                    "킬",
+                    "데스",
+                    "어시스트"
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # CSV 다운로드는 선택 사항
+        csv = df.to_csv(
+            index=False
+        ).encode("utf-8-sig")
+
+        st.download_button(
+            "📥 분석 결과 다운로드",
+            data=csv,
+            file_name="valorant_analysis.csv",
+            mime="text/csv"
+        )
+
+        st.caption(
+            "데이터 출처: ugiAPI / VALORANT 경기 기록"
+        )
+
+    except requests.exceptions.Timeout:
+        st.error("API 응답 시간이 초과되었습니다. 잠시 후 다시 시도하세요.")
+
+    except requests.exceptions.RequestException:
+        st.error("인터넷 연결 또는 API 서버에 문제가 발생했습니다.")
+
+    except Exception as e:
+        st.error(f"데이터 처리 오류: {e}")
+
+else:
+    st.info(
+        "Riot ID와 API 키를 입력하고 검색 버튼을 눌러주세요."
     )
 
-    st.write(
-        "분석된 맵:",
-        available_maps
-    )
+    st.markdown("""
+    ### 제공 기능
 
+    - 요원별 승률
+    - 랭크별 승률
+    - 랭크별 요원 승률
+    - 맵별 요원 승률
+    - 요원별 K/D 분석
+    - 최근 경쟁전 기록
+    """)

@@ -1,9 +1,4 @@
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
 
-# 한글 폰트 설정
-plt.rcParams["font.family"] = "DejaVu Sans"
-plt.rcParams["axes.unicode_minus"] = False
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -113,33 +108,6 @@ region_total = (
     .sum()
     .sort_values(ascending=False)
 )
-
-st.header("3. 지역별 범죄 발생 TOP 10")
-
-top10 = region_total.head(10)
-
-# 기본 막대 색상
-colors = ["white"] * len(top10)
-
-# 가장 높은 값: 붉은색
-colors[0] = "red"
-
-# 가장 낮은 값: 하늘색
-colors[-1] = "skyblue"
-
-fig, ax = plt.subplots(figsize=(12, 6))
-
-ax.bar(
-    top10.index,
-    top10.values,
-    color=colors,
-    edgecolor="black"
-)
-
-ax.set_title("지역별 범죄 발생 TOP 10")
-ax.set_xlabel("지역")
-ax.set_ylabel("범죄 발생 건수")
-
 plt.xticks(rotation=45)
 plt.tight_layout()
 
@@ -232,9 +200,6 @@ seoul_total = (
 
 colors = ["white"] * len(seoul_total)
 
-if len(colors) > 0:
-    colors[0] = "red"
-    colors[-1] = "skyblue"
 
 fig, ax = plt.subplots(figsize=(12, 6))
 

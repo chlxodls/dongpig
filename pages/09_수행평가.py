@@ -108,11 +108,9 @@ region_total = (
     .sum()
     .sort_values(ascending=False)
 )
-plt.xticks(rotation=45)
-plt.tight_layout()
 
-st.pyplot(fig)
-plt.close(fig)
+st.bar_chart(region_total.head(10))
+
 st.dataframe(
     region_total.head(10).rename("발생 건수"),
     use_container_width=True
@@ -190,33 +188,5 @@ st.write(
     f"{crime_type.index[0]}이며, "
     f"총 {int(crime_type.iloc[0]):,}건입니다."
 )
-st.header("4. 서울 자치구별 범죄 발생 현황")
 
-seoul_total = (
-    df[seoul_cols]
-    .sum()
-    .sort_values(ascending=False)
-)
-
-colors = ["white"] * len(seoul_total)
-
-
-fig, ax = plt.subplots(figsize=(12, 6))
-
-ax.bar(
-    seoul_total.index,
-    seoul_total.values,
-    color=colors,
-    edgecolor="black"
-)
-
-ax.set_title("서울 자치구별 범죄 발생 현황")
-ax.set_xlabel("지역")
-ax.set_ylabel("범죄 발생 건수")
-
-plt.xticks(rotation=60)
-plt.tight_layout()
-
-st.pyplot(fig)
-plt.close(fig)
 st.success("모든 데이터 분석이 완료되었습니다!")

@@ -681,3 +681,192 @@ st.success("전국 범죄 통계 분석이 완료되었습니다!")
 st.caption(
     "자료: 경찰청 범죄 발생 지역별 통계_20251231.csv"
 )
+
+# ==========================================
+# 🧠 범죄 통계 자동 분석 및 해석
+# ==========================================
+
+st.divider()
+st.header("🧠 데이터 기반 자동 분석 결과")
+st.caption("경찰청 범죄 발생 지역별 통계 데이터를 바탕으로 분석한 결과입니다.")
+
+# 국내 지역 컬럼만 추출
+analysis_region_cols = [
+    col for col in df.columns[2:]
+    if not str(col).startswith("외국")
+]
+
+# 숫자 데이터 변환
+for col in analysis_region_cols:
+    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+# 범죄 유형별 데이터 정리
+analysis_df = df.copy()
+analysis_df["범죄대분류"] = analysis_df["범죄대분류"].fillna("미분류")
+analysis_df["범죄중분류"] = analysis_df["범죄중분류"].fillna("미분류")
+
+# 지역별 총 범죄 발생 건수
+region_total = (
+    analysis_df[analysis_region_cols]
+    .sum()
+    .sort_values(ascending=False)
+)
+
+# 범죄대분류별 전국 합계
+category_total = (
+    analysis_df.groupby("범죄대분류")[analysis_region_cols]
+    .sum()
+    .sum(axis=1)
+    .sort_values(ascending=False)
+)
+
+# 범죄중분류별 전국 합계
+detail_total = (
+    analysis_df.groupby("범죄중분류")[analysis_region_cols]
+    .sum()
+    .sum(axis=1)
+    .sort_values(ascending=False)
+)
+
+# 전체 발생 건수
+national_total = int(region_total.sum())
+
+if national_total > 0 and len(region_total) > 0:
+
+    # 최고·최저 지역
+    top_region = region_total.index[0]
+    top_region_value = int(region_total.iloc[0])
+
+    # 발생 건수가 0보다 큰 지역만 최저 지역 후보로 사용
+    positive_regions = region_total[region_total > 0]
+
+    if len(positive_regions) > 0:
+        low_region = positive_regions.index[-1]
+        low_region_value = int(positive_regions.iloc[-1])
+    else:
+        low_region = "확인 불가"
+        low_region_value = 0
+
+    # 최다 범죄대분류
+    top_category = category_total.index[0]
+    top_category_value = int(category_total.iloc[0])
+    category_ratio = top_category_value / national_total * 100
+
+    # 최다 범죄중분류
+    top_detail = detail_total.index[0]
+    top_detail_value = int(detail_total.iloc[0])
+
+    # 상위 5개 지역의 발생 건수 비중
+    top5_total = int(region_total.head(5).sum())
+    top5_ratio = top5_total / national_total * 100
+
+    # 가장 많이 발생한 지역의 주요 범죄 유형
+    region_category = (
+        analysis_df.groupby("범죄대분류")[top_region]
+        .sum()
+        .sort_values(ascending=False)
+    )
+
+    dominant_category = region_category.index[0]
+    dominant_value = int(region_category.iloc[0])
+
+    # 핵심 지표
+    st.subheader("📊 핵심 분석 지표")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "국내 전체 범죄 발생 건수",
+        f"{national_total:,}건"
+    )
+
+    col2.metric(
+        "발생 건수 최다 지역",
+        top_region,
+        f"{top_region_value:,}건"
+    )
+
+    col3.metric(
+        "발생 건수 최다 범죄 유형",
+        top_category,
+        f"{top_category_value:,}건"
+    )
+
+    st.divider()
+
+    # 자동 분석 결과 1
+    st.subheader("① 지역별 범죄 발생 분석")
+
+    st.markdown(
+        f"""
+        - 국내 지역 중 **{top_region}**에서 범죄 발생 건수가
+          가장 높게 나타났으며, 총 **{top_region_value:,}건**으로 집계되었습니다.
+        - 발생 건수가 가장 낮은 지역은 **{low_region}**이며,
+          총 **{low_region_value:,}건**으로 집계되었습니다.
+        - 상위 5개 지역의 발생 건수는 전체의
+          **{top5_ratio:.1f}%**를 차지합니다.
+        """
+    )
+
+    st.info(
+        "해석: 지역별 범죄 발생 건수는 인구 규모, 유동 인구, "
+        "지역 특성 등에 영향을 받을 수 있습니다. "
+        "따라서 발생 건수만으로 해당 지역의 실제 범죄 위험도를 "
+        "단정할 수는 없습니다."
+    )
+
+    # 자동 분석 결과 2
+    st.divider()
+    st.subheader("② 범죄 유형별 분석")
+
+    st.markdown(
+        f"""
+        - 범죄대분류 중 **{top_category}**의 발생 건수가
+          **{top_category_value:,}건**으로 가장 높습니다.
+        - 이 유형은 국내 전체 발생 건수의
+          **{category_ratio:.1f}%**를 차지합니다.
+        - 범죄중분류에서는 **{top_detail}**이
+          **{top_detail_value:,}건**으로 가장 높게 나타났습니다.
+        """
+    )
+
+    # 자동 분석 결과 3
+    st.divider()
+    st.subheader("③ 지역별 주요 범죄 유형 분석")
+
+    st.markdown(
+        f"""
+        - 발생 건수가 가장 높았던 **{top_region}**의 주요 범죄 유형은
+          **{dominant_category}**입니다.
+        - 해당 지역에서 이 범죄 유형은 총
+          **{dominant_value:,}건**으로 집계되었습니다.
+        """
+    )
+
+    # 자동 분석 결과 4
+    st.divider()
+    st.subheader("④ 종합 분석 및 결론")
+
+    st.success(
+        f"""
+        이번 통계 분석에서는 국내 전체 범죄 발생 건수가
+        {national_total:,}건으로 집계되었습니다.
+
+        지역별로는 {top_region}의 발생 건수가 가장 높았으며,
+        범죄 유형별로는 {top_category}가 가장 높은 비중을 보였습니다.
+
+        또한 상위 5개 지역의 발생 건수 비중은 {top5_ratio:.1f}%로,
+        지역별 범죄 발생 건수에 차이가 있음을 확인할 수 있었습니다.
+
+        이러한 결과를 통해 범죄 통계는 지역별·유형별로 구분하여
+        분석할 필요가 있다는 점을 알 수 있습니다.
+        """
+    )
+
+    st.caption(
+        "※ 본 분석은 제공된 통계의 국내 지역별 발생 건수를 합산한 결과입니다. "
+        "인구 대비 발생률이나 시간에 따른 증감 추세를 나타내지는 않습니다."
+    )
+
+else:
+    st.warning("분석할 범죄 통계 데이터가 없습니다.")

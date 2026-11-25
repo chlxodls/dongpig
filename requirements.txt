@@ -6,5 +6,5 @@ plotly>=5.20.0
 numpy
 scikit-learn
 matplotlib
-
+pydeck
 
